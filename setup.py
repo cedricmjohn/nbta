@@ -6,8 +6,8 @@ with open('requirements.txt') as f:
 requirements = [x.strip() for x in content if 'git+' not in x]
 
 setup(name='nbta',
-      version="1.0",
-      description="Project Description",
+      version="0.1",
+      description="nbta is the Notebook Teaching Assistant helping with meaningful feedback and error management for Python",
       packages=find_packages(),
       install_requires=requirements,
       test_suite='tests',
