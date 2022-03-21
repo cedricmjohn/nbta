@@ -1,74 +1,17 @@
-# Data analysis
-- Document here the project: nbta
-- Description: Project Description
-- Data Source:
-- Type of analysis:
+# NBTA: The Notebook Teaching Assistant
 
-Please document the project the better you can.
+nbta (the "Notebook Teaching Assistant") is a Python package that I developped to help me teach and grade data science and machine learning classes.
 
-# Startup the project
+## Formative Feedback
 
-The initial setup.
+The formative feedback module is where all of the code to return user friendly tests in notebooks resides. The goal of the formative feedback module is to help student learn to identify their mistakes based on comprehensive tests. The tests are meant to be verbose in order to point out where the mistake lies.
 
-Create virtualenv and install the project:
-```bash
-sudo apt-get install virtualenv python-pip python-dev
-deactivate; virtualenv ~/venv ; source ~/venv/bin/activate ;\
-    pip install pip -U; pip install -r requirements.txt
-```
+## Sumative Feedback
 
-Unittest test:
-```bash
-make clean install test
-```
+The summative feedback module is where all the code to mark assessements resides. Sumative is intended to use Python tests to autograde or manually grade notebooks.
 
-Check for nbta in gitlab.com/{group}.
-If your project is not set please add it:
+## Notebooks
 
-- Create a new project on `gitlab.com/{group}/nbta`
-- Then populate it:
+The notebook module contains all the code needed to manipulate notebooks. This can be used directly, or is implicetely used when using the summative module
 
-```bash
-##   e.g. if group is "{group}" and project_name is "nbta"
-git remote add origin git@github.com:{group}/nbta.git
-git push -u origin master
-git push -u origin --tags
-```
 
-Functionnal test with a script:
-
-```bash
-cd
-mkdir tmp
-cd tmp
-nbta-run
-```
-
-# Install
-
-Go to `https://github.com/{group}/nbta` to see the project, manage issues,
-setup you ssh public key, ...
-
-Create a python3 virtualenv and activate it:
-
-```bash
-sudo apt-get install virtualenv python-pip python-dev
-deactivate; virtualenv -ppython3 ~/venv ; source ~/venv/bin/activate
-```
-
-Clone the project and install it:
-
-```bash
-git clone git@github.com:{group}/nbta.git
-cd nbta
-pip install -r requirements.txt
-make clean install test                # install and test
-```
-Functionnal test with a script:
-
-```bash
-cd
-mkdir tmp
-cd tmp
-nbta-run
-```
