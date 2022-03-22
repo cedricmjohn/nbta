@@ -1,5 +1,6 @@
 from datetime import datetime
 import nbformat as nbf 
+import os
 
 def header_cell(author):
     # datetime object containing current date and time
@@ -12,13 +13,29 @@ def header_cell(author):
     return nbf.v4.new_markdown_cell(source=source)
 
 def header_code_cell(author):
-    source = [f'import nbta',
+    absolute_path = os.getcwd()
+
+    source = ['%load_ext autoreload',
+    '%autoreload 2',
+    '',
     'import numpy as np',
     'import pandas as pd',
-    'import matplotlib.pyplot as plt']
+    'import matplotlib.pyplot as plt',
+    'from nbta.grading import QuestionGrader',
+    'import sys'
+    '',
+    '# Adding local test classes to the Python path:',
+    f'sys.path.insert(0, f"{absolute_path}/grading/testing/notebook_tests")',
+    f'sys.path.insert(1, f"{absolute_path}/grading/testing/external_tests")'
+    ]
     
     source = '\n'.join(source)
+
     return nbf.v4.new_code_cell(source=source)
+    
+def footer_cell():
+    return f"nbta_test_style = QuestionGrader('style')"
+
 
 
 class NotAssigned():

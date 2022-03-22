@@ -1,11 +1,12 @@
 import nbformat as nbf
 from nbconvert.preprocessors import ExecutePreprocessor
-import numpy as np
+from nbconvert.preprocessors import CellExecutionError
 import pandas as pd
 import sys
 import os
 from os import path
-from nbta.utils import header_cell, header_code_cell
+import shutil
+from nbta.utils import footer_cell, header_cell, header_code_cell
 from tqdm import tqdm
 
 
@@ -43,9 +44,15 @@ class ParsedNotebook():
             if not inserted:
                 modified_cells.append(this_cell)
 
+
+        modified_cells.append(nbf.v4.new_code_cell(source=footer_cell()))
         tests_list = [f'nbta_test_{c.name}' for c in new_cells]
+        tests_list.append('nbta_test_style')
         final_cell_text = ','.join(tests_list)
-        final_cell_code = f'[t.save_values() for t in [{final_cell_text}]]'
+        final_cell_code = ['# DONT FORGET TO SAVE:','',f'all_tests = [{final_cell_text}]','',
+        f'for t in all_tests:',
+        f'    t.save_values()']
+        final_cell_code = '\n'.join(final_cell_code)
         modified_cells.append(nbf.v4.new_code_cell(source=final_cell_code))
 
         self.modified_content['cells'] = modified_cells
@@ -74,16 +81,20 @@ class MarkingCell():
 
         if from_file is True:
             self.check_source_dir()
-            source_path = f"grading/testing/notebook-tests/{name}.py"
+            source_path = f"grading/testing/notebook_tests/{name}.py"
             if not os.path.exists(source_path):
                 self.create_test_file(source_path)
             
-            options_path = f"grading/testing/notebook-tests/{name}.csv"
-            if not os.path.exists(options_path):
-                self.initialise_options(options_path)
-
             with open(source_path, 'r') as f:
                 source = ''.join(f.readlines())
+            
+            options_path = f"grading/testing/notebook_tests/{name}.csv"
+            if not os.path.exists(options_path):
+                self.initialise_options(options_path)
+            
+            style_path = f"grading/testing/notebook_tests/style.csv"
+            if not os.path.exists(style_path):
+                self.initialise_styles(style_path)
 
         if cell_type == 'code':
             self.cell = nbf.v4.new_code_cell(source=source)
@@ -96,8 +107,8 @@ class MarkingCell():
         self.name = name
 
     def check_source_dir(self):
-        grading_dirs = ["grading", "grading/testing","grading/testing/notebook-tests",
-        "grading/scores", "grading/testing/external-tests"]
+        grading_dirs = ["grading", "grading/testing","grading/testing/notebook_tests",
+        "grading/scores","grading/scores/individual", "grading/testing/external_tests"]
 
         for path in grading_dirs:
             if not os.path.isdir(path):
@@ -106,7 +117,6 @@ class MarkingCell():
     def create_test_file(self, path):
         test_name = path.split("/")[-1].strip(".py")
         code = [f"# TEST FOR QUESTION {test_name}",
-        "from nbta.grading import QuestionGrader",
         f"nbta_test_{test_name} = QuestionGrader('{test_name}')"]
         code = "\n".join(code)
 
@@ -119,12 +129,19 @@ class MarkingCell():
         "high_pass, you understood the basics of this question", "merit, you understood the question well","high_merit, you answered the question very well", "distinction, your answer is in the top 10% of the class", "high_distinction, your answer is in the top 5% of the class"])
         with open(path, 'w') as f:
                 f.write(options)
+
+    def initialise_styles(self, path):
+        options = "\n".join(["options,feedback",
+        "good use of functions","logical variable names","pythonic style","good use of markdown",
+        "appropriate level of comments", "good use of graphs", "some graphs", "no graphs",
+        "best solution", "simple solution", "complicated solution", "overly complicated solution"])
+        with open(path, 'w') as f:
+                f.write(options)
  
 
 class NotebookMarker():
-    def __init__(self, folder, notebook_name, name_func=None, kernel='python3'):
+    def __init__(self, folder, notebook_name, name_func=None):
         self.notebook_name = notebook_name
-        self.kernel = kernel
         self.name_func = name_func
         self.base_dir = folder
         self.marking_name = f'{self.notebook_name}_marking'
@@ -156,12 +173,14 @@ class NotebookMarker():
         return notebooks
 
     def register_autotest(self):
-        test_list = os.listdir("grading/testing/external-tests")
+        test_list = os.listdir("grading/testing/external_tests")
         test_list = [name.split('.')[0] for name in test_list if name.endswith(".py")]
         return test_list
 
     def run_autotests(self):
         test_results = {}
+        sys.path.insert(0, f'{os.getcwd()}/grading/testing/external_tests')
+        sys.path.insert(1, f'{os.getcwd()}/grading/testing/notebook_tests')
         for the_test in self.register_autotest():
             print(f"Now running test {the_test}")
             test_results[the_test]= self.run_single_test(the_test)
@@ -173,8 +192,6 @@ class NotebookMarker():
 
     def run_single_test(self, the_test):
         results = None
-        absolute_path = os.getcwd()
-        sys.path.insert(0, f'{absolute_path}/grading/testing/external-tests')
         
         for candidate in tqdm(self.candidates):
             mod = __import__(the_test, fromlist=[the_test])
@@ -193,12 +210,59 @@ class NotebookMarker():
 
 
 
-    def run_notebooks(self):
-        for auth, notebook in self.notebooks.items():
-            print(f'Running notebook for {auth}')
-            notebook.execute_notebook(kernel=self.kernel)
+    def run_notebooks(self,save_originals=None, kernel='python3', first_run=True):
+
+        if first_run:
+            try:
+                results = pd.read_csv('grading/scores/nbta_runs.csv')
+            except:
+                results = pd.DataFrame(data=[], columns=['candidate','status','message'])
+
+        ep = ExecutePreprocessor(kernel_name=kernel,
+        allow_errors=True)
+
+        for auth, notebook in tqdm(self.notebooks.items()):
+
+            if (first_run and auth not in results.candidate.values) or (not first_run):
+                passed,auth_errors = self.run_single_notebook(auth, notebook.modified_content.copy(),save_originals,ep)
+                row = {'candidate': auth, 'status': passed, 'message': auth_errors}
+                results = results.append(row, ignore_index = True)
+                results.to_csv('grading/scores/nbta_runs.csv', index=False)
+            
+        self.runs_results = pd.read_csv('grading/scores/nbta_runs.csv')
+
         return self
-    
+
+    def run_single_notebook(self, auth, nb, save_originals, ep):
+        super_path = os.getcwd()
+        if save_originals is not None:
+            for original_file in save_originals:
+                try:
+                    shutil.copy(f'{self.base_dir}/{auth}/{original_file}', f'{self.base_dir}/{auth}/nbta_{original_file}')
+                except:
+                    pass
+        os.chdir(f'{super_path}/{self.base_dir}/{auth}')
+        notebook_filename_out = f'{self.notebook_name}_marking.ipynb'
+
+        try:
+            out = ep.preprocess(nb, {'metadata': {'path': ''}})
+        except CellExecutionError as e:
+            print(e)
+        finally:
+            with open(notebook_filename_out, mode='w', encoding='utf-8') as f:
+                nbf.write(nb, f)
+        auth_errors = []
+        passed = True
+        for cell in nb['cells']:
+            if cell['cell_type']=='code':
+                for output in cell['outputs']:
+                    if output['output_type'] == 'error':
+                        auth_errors.append(f"{output['ename']}: {output['evalue']}")
+                        passed = False
+
+        os.chdir(super_path)
+        return passed, auth_errors
+
 if __name__ == '__main__':
     with open('code_cells/final_cell.py') as f:
             lines = f.readlines()
