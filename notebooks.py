@@ -47,7 +47,7 @@ class ParsedNotebook():
 
         modified_cells.append(nbf.v4.new_code_cell(source=footer_cell()))
         tests_list = [f'nbta_test_{c.name}' for c in new_cells]
-        tests_list.append('nbta_test_style')
+        tests_list=tests_list+['nbta_test_style','nbta_estimated_mark']
         final_cell_text = ','.join(tests_list)
         final_cell_code = ['# DONT FORGET TO SAVE:','',f'all_tests = [{final_cell_text}]','',
         f'for t in all_tests:',
@@ -58,6 +58,21 @@ class ParsedNotebook():
         self.modified_content['cells'] = modified_cells
 
         return self
+
+    def yield_question_cells(self,start_question,end_question):
+        return_cells = [nbf.v4.new_markdown_cell(source=f'ANSWER FROM: {self.author}')]
+        in_scope = False
+        for this_cell in self.content['cells']:
+            if start_question.tags in this_cell['source']:
+                in_scope = True
+                return_cells.append(this_cell)
+            if end_question is not None:
+                if end_question.tags in this_cell['source']:
+                    in_scope = False
+                    return return_cells
+            if in_scope:
+                return_cells.append(this_cell)
+        return return_cells
 
     def execute_notebook(self, kernel):
         ep = ExecutePreprocessor(timeout=99999999,kernel_name=kernel)
@@ -75,7 +90,7 @@ class ParsedNotebook():
             nbf.write(content,f)
 
 class MarkingCell():
-    def __init__(self, name, tag, cell_type='code', position='before', from_file=True, source_data=None):
+    def __init__(self, name, tags, cell_type='code', position='before', from_file=True, source_data=None):
         if from_file is False and source_data is None:
             raise Exception("Either from_file must be True or source_data must not be a NoneType")
 
@@ -102,7 +117,7 @@ class MarkingCell():
             self.cell = nbf.v4.new_markdown_cell(source=source)
         else:
             raise Exception(f"Unknown cell type: {cell_type}")
-        self.tag = tag
+        self.tags = tags
         self.position = position
         self.name = name
 
@@ -140,11 +155,12 @@ class MarkingCell():
  
 
 class NotebookMarker():
-    def __init__(self, folder, notebook_name, name_func=None):
+    def __init__(self, folder, notebook_name, questions=None,name_func=None):
         self.notebook_name = notebook_name
         self.name_func = name_func
         self.base_dir = folder
         self.marking_name = f'{self.notebook_name}_marking'
+        self.questions = questions
         self.candidates = self.filter_dirs(os.listdir(self.base_dir))
         self.notebooks = self.get_notebooks()
         self.test_list = None
@@ -156,7 +172,12 @@ class NotebookMarker():
             candidates.remove('.ipynb_checkpoints')
         return candidates
 
-    def insert_cells(self, cells_data):
+    def insert_cells(self, cells_data=None):
+        if cells_data is None:
+            if self.questions is None:
+                return self
+            cells_data = self.questions
+
         for auth, notebook in self.notebooks.items():
             notebook.insert_cells(cells_data).write()
         return self
@@ -169,7 +190,7 @@ class NotebookMarker():
                 notebook = ParsedNotebook(path, candidate, self.marking_name)
                 notebooks[candidate] = notebook
             except Exception as e:
-                pass
+                print(f'Error on candidate {candidate}:{e}')
         return notebooks
 
     def register_autotest(self):
@@ -262,6 +283,26 @@ class NotebookMarker():
 
         os.chdir(super_path)
         return passed, auth_errors
+
+    def generate_question_notebooks(self):
+        questions = self.questions
+        for index,question in enumerate(questions):
+            if index+1 != len(questions):
+                next_question = questions[index+1]
+            else:
+                next_question = None
+
+            cells = []
+            for auth, notebook in self.notebooks.items():
+                cells = cells + notebook.yield_question_cells(question,next_question)
+                  
+            question_notebook = nbf.v4.new_notebook()    
+            question_notebook['cells'] = cells
+
+            with open(f'{question.name}_all_answers.ipynb', 'w') as f:
+                nbf.write(question_notebook,f)
+
+
 
 if __name__ == '__main__':
     with open('code_cells/final_cell.py') as f:

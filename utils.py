@@ -21,7 +21,7 @@ def header_code_cell(author):
     'import numpy as np',
     'import pandas as pd',
     'import matplotlib.pyplot as plt',
-    'from nbta.grading import QuestionGrader',
+    'from nbta.grading import QuestionGrader, EstimatedMark',
     'import sys'
     '',
     '# Adding local test classes to the Python path:',
@@ -34,7 +34,9 @@ def header_code_cell(author):
     return nbf.v4.new_code_cell(source=source)
     
 def footer_cell():
-    return f"nbta_test_style = QuestionGrader('style')"
+    lines = [f"nbta_test_style = QuestionGrader('style')",
+    "nbta_estimated_mark = EstimatedMark()"]
+    return "\n".join(lines)
 
 
 
