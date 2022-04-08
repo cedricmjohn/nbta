@@ -172,13 +172,14 @@ class EstimatedMark:
 
 
 class GradingSchema():
-    def __init__(self,name,total_points,add_tests=None):
+    def __init__(self,name,total_points,add_tests=None, ignore_feedbacks=[]):
         self.name = name
         self.total_points = total_points
         self.add_tests = add_tests
         self.markings = None
         self.style = None
         self.grades = None
+        self.ignore_feedbacks = ignore_feedbacks
 
     def load_marks(self, folder, candidates):
         question_cols = pd.read_csv(f'grading/testing/notebook_tests/{self.name}.csv').options.values
@@ -213,26 +214,88 @@ class GradingSchema():
         self.markings = marking.copy()
         return self
 
+    def build_feedback(self, values, all_feedbacks):
+        neg_feedbacks = []
+        pos_feedbacks = []
+        for f in all_feedbacks:
+            if values[f] == 0:
+                neg_feedbacks.append(f)
+            else:
+                pos_feedbacks.append(f)
+        feedback_string = ''
+        pos_feedback_string = ''
+        neg_feedback_string = ''
+        if len(pos_feedbacks)>0:
+            pos_feedback_string = f'You did the following well in {self.name}:\n'
+            pos_items = '\n'.join([f'    - {self.feedback_dict.get(f)}' for f in pos_feedbacks])
+            pos_feedback_string = f'{pos_feedback_string}{pos_items}'
+        if len(neg_feedbacks)>0:
+            neg_feedback_string = f'Improvements in {self.name} would be possible for the following (either your did not do that, or not to the highest standard):\n'
+            neg_items = '\n'.join([f'    - {self.feedback_dict.get(f)}' for f in neg_feedbacks])
+            neg_feedback_string = f'{neg_feedback_string}{neg_items}'
+        add_feedback = ''
+        if values['additional_comments'] not in ['', ' ']:
+            add_feedback = f'Additional feedback for this question:{values["additional_comments"]}'
+
+        feedback_string = f'{pos_feedback_string}\n{neg_feedback_string}\n{add_feedback}'
+
+        return feedback_string
+
+    def get_feedback(self):
+        feedback_options = pd.read_csv(f'grading/testing/notebook_tests/{self.name}.csv')
+        self.feedback_dict = dict(zip(feedback_options.options.values,feedback_options.feedback.values))
+        feedbacks = pd.DataFrame()
+        feedbacks['candidate'] = self.markings.candidate
+        feedbacks['feedback'] = '\n'
+
+        ignore = self.ignore_feedbacks+['candidate', 'additional_comments', 'not_answered']
+
+        cols = [c for c in self.markings.columns.values if c not in ignore]
+
+        neg_feedbacks = [f for f in cols if f.split('_')[0] == 'neg']
+        pos_feedbacks = [f for f in cols if f not in neg_feedbacks]
+
+        values = self.markings.copy()
+        values[neg_feedbacks] = abs(values[neg_feedbacks]-1)
+
+        all_feedbacks = neg_feedbacks + pos_feedbacks
+
+        print(f"Generating feedback for {self.name}:")
+        for index, row in tqdm(values.iterrows()):
+            feedbacks.loc[index,'feedback'] = self.build_feedback(row,all_feedbacks)
+
+        self.feedbacks = feedbacks
+
+        return feedbacks
+
     def simple_grading(self, df):
         marks = pd.Series(name='marks', data=np.zeros(df.shape[0]))
         max_points = 0
         for col in df.columns.values:
             if df[col].dtype == bool:
                 if (col.split('_')[0] == 'neg') or (col == 'not_answered'):
-                    marks = marks + np.abs(df[col]-1)
+                    marks = marks + np.abs(df[col].values-1)
                 else:
-                    marks = marks + df[col]
+                    marks = marks + df[col].values
                 max_points += 1
         mask = np.abs(df.not_answered-1)
         marks = marks.apply(lambda x: 0 if x<0 else x)
-        marks = marks*mask
+        marks = marks.values*mask
+        self.max_points = max_points
         final_mark = marks/max_points*self.total_points
         print(f'Max points: {max_points}, Total mark:{self.total_points}, Mean mark±1SD:{np.mean(final_mark)}±{np.std(final_mark)}')
         return final_mark
 
 
+    def calculate_grades(self):
+        grades = self.simple_grading(self.markings)
+        return grades
+    
     def grade(self):
-        self.grades = self.simple_grading(self.markings).copy()
+        grade_per_candidate = pd.DataFrame()
+        grade_per_candidate['candidate'] = self.markings.candidate
+        grade_per_candidate[self.name] = self.calculate_grades()
+        self.grades = grade_per_candidate
         return self.grades
 
 
@@ -240,13 +303,26 @@ class GradingSchema():
 class Grader():
     def __init__(self, marker, schemas):
         self.marker = marker
+        self.reset_grades()
         self.style_schema = GradingSchema('style',100)
         self.schemas = dict(zip([s.name for s in schemas],schemas))
-        self.grades = pd.DataFrame()
-        self.grades['candidate'] = self.marker.candidates
         self.folder = self.marker.base_dir
 
+    def make_feedback(self):
+        self.grades['feedback'] = self.grades['candidate'].apply(lambda x: '')
+        
+        for q in tqdm(self.schemas.keys()):
+            self.grades['feedback'] = self.grades['feedback'] + self.schemas.get(q).get_feedback()['feedback']
+    
+        return self
+
+    def reset_grades(self):
+        self.grades = pd.DataFrame()
+        self.grades['candidate'] = self.marker.candidates
+
     def grade(self, questions=None):
+        self.reset_grades()
+
         if questions is None:
             questions = self.schemas.keys()
         elif not questions.isinstance(list):
@@ -257,19 +333,24 @@ class Grader():
             print(f"Grading question {question}")
             schema = self.schemas.get(question)
             schema.load_marks(self.folder, self.grades['candidate'].values)
-            self.grades[schema.name] = schema.grade()
+            self.grades = self.grades.merge(schema.grade(), on = 'candidate')
             self.grades['total'] = self.grades['total'] + self.grades[schema.name]
-        
+        self.grades['total'] = np.round(self.grades['total'],0)
+
         print(f"Grading coding style")
         self.style_schema.load_marks(self.folder, self.grades['candidate'].values)
-        self.grades['coding_style'] = self.style_schema.grade()
-
+        style_results = self.style_schema.grade()
+        style_results.columns = ['candidate','coding_style']
+        self.grades = self.grades.merge(style_results, on = 'candidate')
+        
         print(f"Gathering estimated marks")
-        est_marks = []
+        est_marks = pd.DataFrame()
+        est_marks['candidate'] = self.grades['candidate']
+        est_marks['estimated_marks']=np.nan
         for candidate in tqdm(self.grades['candidate'].values):
             mark = pd.read_csv(f'{self.folder}/{candidate}/grades/nbta_selection_estimated_grade.csv')
-            est_marks.append(mark.loc[0,'options'])
-        self.grades['estimated_marks'] = est_marks
+            est_marks.loc[est_marks.candidate==candidate,'estimated_marks']=mark.loc[0,'options']
+        self.grades = self.grades.merge(est_marks, on = 'candidate')
         return self
 
     def marking_for_question(self, question):
