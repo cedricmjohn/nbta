@@ -215,6 +215,9 @@ class GradingSchema():
         return self
 
     def build_feedback(self, values, all_feedbacks):
+        if values['not_answered'] == 1:
+            return f'You did not answer {self.name}.'
+
         neg_feedbacks = []
         pos_feedbacks = []
         for f in all_feedbacks:
@@ -227,15 +230,15 @@ class GradingSchema():
         neg_feedback_string = ''
         if len(pos_feedbacks)>0:
             pos_feedback_string = f'You did the following well in {self.name}:\n'
-            pos_items = '\n'.join([f'    - {self.feedback_dict.get(f)}' for f in pos_feedbacks])
-            pos_feedback_string = f'{pos_feedback_string}{pos_items}'
+            pos_items = '\n'.join([f'    • {self.feedback_dict.get(f)}' for f in pos_feedbacks])
+            pos_feedback_string = f'{pos_feedback_string}{pos_items}\n'
         if len(neg_feedbacks)>0:
             neg_feedback_string = f'Improvements in {self.name} would be possible for the following (either your did not do that, or not to the highest standard):\n'
-            neg_items = '\n'.join([f'    - {self.feedback_dict.get(f)}' for f in neg_feedbacks])
-            neg_feedback_string = f'{neg_feedback_string}{neg_items}'
+            neg_items = '\n'.join([f'    • {self.feedback_dict.get(f)}' for f in neg_feedbacks])
+            neg_feedback_string = f'{neg_feedback_string}{neg_items}\n'
         add_feedback = ''
         if values['additional_comments'] not in ['', ' ']:
-            add_feedback = f'Additional feedback for this question:{values["additional_comments"]}'
+            add_feedback = f'Additional feedback for this question: {values["additional_comments"]}\n\n'
 
         feedback_string = f'{pos_feedback_string}\n{neg_feedback_string}\n{add_feedback}'
 
@@ -248,7 +251,7 @@ class GradingSchema():
         feedbacks['candidate'] = self.markings.candidate
         feedbacks['feedback'] = '\n'
 
-        ignore = self.ignore_feedbacks+['candidate', 'additional_comments', 'not_answered']
+        ignore = self.ignore_feedbacks+['candidate', 'additional_comments','not_answered']
 
         cols = [c for c in self.markings.columns.values if c not in ignore]
 
@@ -262,7 +265,7 @@ class GradingSchema():
 
         print(f"Generating feedback for {self.name}:")
         for index, row in tqdm(values.iterrows()):
-            feedbacks.loc[index,'feedback'] = self.build_feedback(row,all_feedbacks)
+            feedbacks.loc[index,'feedback'] = f'{self.build_feedback(row,all_feedbacks)}'
 
         self.feedbacks = feedbacks
 
@@ -308,12 +311,18 @@ class Grader():
         self.schemas = dict(zip([s.name for s in schemas],schemas))
         self.folder = self.marker.base_dir
 
-    def make_feedback(self):
-        self.grades['feedback'] = self.grades['candidate'].apply(lambda x: '')
+    def make_feedback(self, pre='', post=''):
+        self.grades['feedback'] = self.grades['candidate'].apply(lambda x: f'{pre}\n')
         
         for q in tqdm(self.schemas.keys()):
-            self.grades['feedback'] = self.grades['feedback'] + self.schemas.get(q).get_feedback()['feedback']
-    
+            current_feedback = self.grades[['candidate','feedback']].copy()
+            current_feedback = current_feedback.merge(self.schemas.get(q).get_feedback(), on='candidate')
+            current_feedback['feedback'] = current_feedback['feedback_x'] + current_feedback['feedback_y']
+            self.grades['feedback'] = current_feedback['feedback'].copy()
+
+
+        self.grades['feedback'] = self.grades['feedback'].apply(lambda x: f'{x}{post}')
+
         return self
 
     def reset_grades(self):
