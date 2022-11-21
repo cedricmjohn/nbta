@@ -4,13 +4,17 @@ import os
 
 def header_cell(author):
     # datetime object containing current date and time
+    cells = []
     now = datetime.now()
     dt_string = now.strftime("on %d/%m/%Y at %H:%M:%S")
 
     source = [f'# MARKING NOTEBOOK [{author}]',
     f'### Generated {dt_string}']
     source = '\n'.join(source)
-    return nbf.v4.new_markdown_cell(source=source)
+
+    cells.append(nbf.v4.new_markdown_cell(source=source))
+
+    return cells
 
 def header_code_cell(author):
     absolute_path = os.getcwd()
@@ -25,8 +29,8 @@ def header_code_cell(author):
     'import sys'
     '',
     '# Adding local test classes to the Python path:',
-    f'sys.path.insert(0, f"{absolute_path}/grading/testing/notebook_tests")',
-    f'sys.path.insert(1, f"{absolute_path}/grading/testing/external_tests")'
+    f'sys.path.insert(0, f"../../grading/testing/notebook_tests")',
+    f'sys.path.insert(1, f"../../grading/testing/external_tests")'
     ]
     
     source = '\n'.join(source)
@@ -35,7 +39,8 @@ def header_code_cell(author):
     
 def footer_cell():
     lines = [f"nbta_test_style = QuestionGrader('style')",
-    "nbta_estimated_mark = EstimatedMark()"]
+    "nbta_estimated_mark = EstimatedMark()",
+    f"nbta_private_feedback = QuestionGrader('Private_feedback_for_lecturer', feedback=True)"]
     return "\n".join(lines)
 
 

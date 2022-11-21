@@ -28,30 +28,43 @@ class ParsedNotebook():
     def insert_cells(self, new_cells):
         cells = self.content['cells']
         self.modified_content = self.content.copy()
-        modified_cells = [header_cell(self.author), header_code_cell(self.author)]
+        modified_cells = header_cell(self.author) + [header_code_cell(self.author)]
 
         for this_cell in cells:
             inserted = False
+            cells_before = []
+            cells_after = []
+            begin_marking = '<span style="color:darkred">==============================================================MARK THIS QUESTION BELOW=================================================================</span>\n<h1 style="color:darkred">YOUR MARKS</h1>'
             for new_cell in new_cells:
                 if  new_cell.tag in this_cell['source']:
                     if new_cell.position == 'before':
-                        modified_cells.append(new_cell.cell)
-                        modified_cells.append(this_cell)
-                    else: 
-                        modified_cells.append(this_cell)
-                        modified_cells.append(new_cell.cell)
+                        if len(cells_before)==0:
+                            cells_before.append(nbf.v4.new_markdown_cell(source=begin_marking))
+                        cells_before.append(new_cell.cell)
+                    else:
+                        if len(cells_after)==0:
+                            cells_after.append(nbf.v4.new_markdown_cell(source=begin_marking)) 
+                        cells_after.append(new_cell.cell)
                     inserted = True
-            if not inserted:
+            if inserted:
+                cells_before.append(this_cell)
+                modified_cells = modified_cells + cells_before + cells_after
+            else:
                 modified_cells.append(this_cell)
 
-
+        modified_cells.append(nbf.v4.new_markdown_cell(source='<h1 style="color:blue">Coding style and private feedback to lecturer</h1>"'))
         modified_cells.append(nbf.v4.new_code_cell(source=footer_cell()))
         tests_list = [f'nbta_test_{c.name}' for c in new_cells]
-        tests_list=tests_list+['nbta_test_style','nbta_estimated_mark']
+        tests_list=tests_list+['nbta_test_style','nbta_estimated_mark','nbta_private_feedback']
+        title_cell_text = '<h1 style="color:red">RUN the cell below to save your markings</h1>"'
+        modified_cells.append(nbf.v4.new_markdown_cell(source=title_cell_text))
         final_cell_text = ','.join(tests_list)
-        final_cell_code = ['# DONT FORGET TO SAVE:','',f'all_tests = [{final_cell_text}]','',
+        final_cell_code = ['# DONT FORGET TO SAVE:','',f'import os','',
+        f'all_tests = [{final_cell_text}]','',
         f'for t in all_tests:',
-        f'    t.save_values()']
+        f'    t.save_values()','',
+        f'print("Saved First Marker as:", os.getlogin())'
+        f'pd.Series(data=[os.getlogin()], name="marker_name").to_csv("grades/first_marker.csv", index=False)']
         final_cell_code = '\n'.join(final_cell_code)
         modified_cells.append(nbf.v4.new_code_cell(source=final_cell_code))
 
@@ -90,7 +103,7 @@ class ParsedNotebook():
             nbf.write(content,f)
 
 class MarkingCell():
-    def __init__(self, name, tags, cell_type='code', position='before', from_file=True, source_data=None):
+    def __init__(self, name, tag, cell_type='code', position='before', from_file=True, source_data=None):
         if from_file is False and source_data is None:
             raise Exception("Either from_file must be True or source_data must not be a NoneType")
 
@@ -117,7 +130,7 @@ class MarkingCell():
             self.cell = nbf.v4.new_markdown_cell(source=source)
         else:
             raise Exception(f"Unknown cell type: {cell_type}")
-        self.tags = tags
+        self.tag = tag
         self.position = position
         self.name = name
 
@@ -153,6 +166,15 @@ class MarkingCell():
         with open(path, 'w') as f:
                 f.write(options)
  
+class FeedbackCell:
+    def __init__(self, tag, name="STUDENT_FEEDBACK",position='before'):
+        self.name = name
+        self.tag = tag
+        self.position = position
+
+        source = f"nbta_test_{self.name} = QuestionGrader('{self.name}', feedback=True)"
+        self.cell = nbf.v4.new_code_cell(source=source)
+        return None
 
 class NotebookMarker():
     def __init__(self, folder, notebook_name, questions=None,name_func=None):

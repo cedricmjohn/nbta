@@ -21,37 +21,44 @@ class NBTATest:
         return self.test_results
 
 class QuestionGrader:
-    def __init__(self, question_name, options=None, auto_tests=None):
+    def __init__(self, question_name, options=None, auto_tests=None, feedback=False):
         self.base_dir = '../..'
         self.question_name = question_name
         self.auto_tests=auto_tests
         self.auto_tests_results={}
-
+        self.feedback = feedback
 
         if not os.path.exists('grades'):
                 os.mkdir('grades')
 
         if self.auto_tests is not None:
             self.run_autotests()
-        
-        try:
-            self.selected_values = pd.read_csv(f'grades/nbta_selection_{self.question_name}.csv')['options'].values
-        except:
-            self.selected_values = None
+
+        if self.feedback:
+            try:
+                self.selected_pos_feedback = pd.read_csv(f'grades/nbta_pos_feedback_{self.question_name}.txt')
+            except:
+                self.selected_pos_feedback = None
             
-        try:
-            self.selected_feedback = pd.read_csv(f'grades/nbta_feedback_{self.question_name}.txt')
-        except:
-            self.selected_feedback = None
-        
-        if options is None:
-            self.options = self.read_options(f'{self.base_dir}/grading/testing/notebook_tests/{self.question_name}.csv')
+            try:
+                self.selected_neg_feedback = pd.read_csv(f'grades/nbta_neg_feedback_{self.question_name}.txt')
+            except:
+                self.selected_neg_feedback = None
+            
+            self.feedback = self.set_feedback()
         else:
-            self.options = options
+            try:
+                self.selected_values = pd.read_csv(f'grades/nbta_selection_{self.question_name}.csv')['options'].values
+            except:
+                self.selected_values = None
         
-        self.autoresults = self.set_autoresults_widget()
-        self.widgets = self.set_widgets()
-        self.feedback = self.set_feedback()
+            if options is None:
+                self.options = self.read_options(f'{self.base_dir}/grading/testing/notebook_tests/{self.question_name}.csv')
+            else:
+                self.options = options
+        
+            self.autoresults = self.set_autoresults_widget()
+            self.widgets = self.set_widgets()
 
         self.display()
 
@@ -98,45 +105,72 @@ class QuestionGrader:
 
 
     def set_feedback(self):
-        if self.selected_feedback is not None:
-            with open(f'grades/nbta_feedback_{self.question_name}.txt', 'r') as f:
-                text = '\n'.join(f.readlines())
+        feedbacks = []
+        if self.selected_pos_feedback is not None:
+            with open(f'grades/nbta_pos_feedback_{self.question_name}.txt', 'r') as f:
+                pos_feedback_text = '\n'.join(f.readlines())
         else:
-            text = ' '
-        feedback = widgets.Textarea(
-            value=text,
-            placeholder=text,
-            description='Feedback:',
-            disabled=False)
+            pos_feedback_text = ' '
         
-        return feedback
+        if self.selected_neg_feedback is not None:
+            with open(f'grades/nbta_neg_feedback_{self.question_name}.txt', 'r') as f:
+                neg_feedback_text = '\n'.join(f.readlines())
+        else:
+            neg_feedback_text = ' '
+
+        feedbacks.append(widgets.Textarea(
+            value=pos_feedback_text,
+            placeholder=pos_feedback_text,
+            description='POSITIVES:',
+            disabled=False))
+
+        feedbacks.append(widgets.Textarea(
+            value=neg_feedback_text,
+            placeholder=neg_feedback_text,
+            description='NEGATIVES:',
+            disabled=False))
+        
+        return feedbacks
     
     def display(self):
-        display(HTML(f"<h2>AUTO TESTS {self.question_name}</h2>"))
-        for test,df in self.auto_tests_results.items():
-            display(HTML(f"<h3>{test.upper()}</h3>"))
-            for col in df.columns:
-                display(HTML(f'<b>{col}:</b>'))
-                display(HTML(f'{df[col].values}'))
+        if self.feedback:
+            display(HTML(f'<h1 style="color:blue">{self.question_name.replace("_"," ")}</h1>'))
+            display(HTML(f'<h4 style="color:red">Remember to be positive and constructive in your feedbacks!</h4>'))
+            display(HTML(f'<p>Students are very sensitive to feedback, and will react to unfair statements. The goal is to provide useful information that will help students improve. When you write negative feedback, frame them as things that can be improved, and try to explain how. Balance the positive and the negative feedbacks, and give about 3-4 each positive & negative feedbacks per question. <br>Remember that your text will be added to more feedback from the automatic and manual tests, and is addressed to the student (so you can use "you").</p>'))
+            for feedback in self.feedback:
+                display(feedback)
+        else:
+            display(HTML(f'<h1 style="color:blue">{self.question_name.replace("_"," ")}</h1>'))
+
+            if len(self.auto_tests_results.items()) > 0:
+                display(HTML(f'<h2 style="color:teal">AUTOMATIC TESTS</h2>'))
+            for test,df in self.auto_tests_results.items():
+                display(HTML(f'<h3 style="color:purple">{test.upper()}</h3>'))
+                for col in df.columns:
+                    display(HTML(f'<b>{col}:</b>'))
+                    display(HTML(f'{df[col].values}'))
         
-        display(HTML(f"<h2>MANUAL TESTS</h2>"))
-        for w in self.widgets:
-            display(w)
-        display(HTML(f"<h2>ADDITIONAL FEEDBACK</h2>"))
-        display(self.feedback)
+            display(HTML(f'<h2 style="color:teal">MANUAL CHECKS</h2>'))
+            for w in self.widgets:
+                display(w)
+
         
     def values(self):
-        values = {'values':[w.description for w in self.widgets if w.value],
-                  'feedback':self.feedback.value}
+        values = {'values':[w.description for w in self.widgets if w.value]}
         return values
 
     def save_values(self):
-        pd.Series(data=self.values().get('values'), 
-        name='options').to_csv(f'grades/nbta_selection_{self.question_name}.csv', index=False)
-
-        with open(f'grades/nbta_feedback_{self.question_name}.txt', 'w') as f:
-                f.write(self.values().get('feedback'))
-        print(f'Saved options and feedback for {self.question_name}')
+        if self.feedback:
+            with open(f'grades/nbta_pos_feedback_{self.question_name}.txt', 'w') as f:
+                f.write(self.feedback[0].value)
+            with open(f'grades/nbta_neg_feedback_{self.question_name}.txt', 'w') as f:
+                f.write(self.feedback[1].value)
+            print(f'Saved feedbacks for {self.question_name}')
+        else:
+            pd.Series(data=self.values().get('values'),
+            dtype=object, 
+            name='options').to_csv(f'grades/nbta_selection_{self.question_name}.csv', index=False)
+            print(f'Saved options for {self.question_name}')
 
 
 
