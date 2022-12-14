@@ -216,24 +216,20 @@ class GradingSchema():
         self.ignore_feedbacks = ignore_feedbacks
 
     def load_marks(self, folder, candidates):
+       
+        self.folder = folder
         question_cols = pd.read_csv(f'grading/testing/notebook_tests/{self.name}.csv').options.values
-        cols = ['candidate','additional_comments']+list(question_cols)
+        cols = ['candidate']+list(question_cols)
         marking = pd.DataFrame(data=[], columns=cols)
-
+        
         for candidate in tqdm(candidates):
-            init_values = [candidate,''] + [np.nan for _ in question_cols]
-            marking.loc[marking.shape[0]+1] = init_values
-
+            init_values = [candidate] + [False for _ in question_cols]
+            marking.loc[marking.shape[0]] = init_values
             try:
                 base_dir = f'{folder}/{candidate}/grades'
                 values = pd.read_csv(f'{base_dir}/nbta_selection_{self.name}.csv')['options'].values
-                with open(f'{base_dir}/nbta_feedback_{self.name}.txt') as f:
-                    text = f.readlines()
-                marking.loc[marking.shape[0],'additional_comments'] = "\n".join(text)
-                marking.loc[marking.shape[0],question_cols] = False
-                marking.loc[marking.shape[0],values] = True
-                self.style = pd.read_csv(f'{base_dir}/nbta_selection_style.csv')['options'].values
-                self.estimated_grade = pd.read_csv(f'{base_dir}/nbta_selection_estimated_grade.csv')['options'].values
+                idx = marking[marking.candidate==candidate].index
+                marking.loc[idx,values] = True
             except Exception as e:
                 print(f'Failed on candidate {candidate}: {e}')
         
@@ -307,20 +303,16 @@ class GradingSchema():
 
     def simple_grading(self, df):
         marks = pd.Series(name='marks', data=np.zeros(df.shape[0]))
-        max_points = 0
-        for col in df.columns.values:
-            if df[col].dtype == bool:
-                if (col.split('_')[0] == 'neg') or (col == 'not_answered'):
-                    marks = marks + np.abs(df[col].values-1)
-                else:
-                    marks = marks + df[col].values
-                max_points += 1
-        mask = np.abs(df.not_answered-1)
+        points = pd.read_csv(f'grading/testing/notebook_tests/{self.name}.csv')['points']
+        max_points = points[points>=0].sum()
+
+        marks = pd.DataFrame(np.multiply(df.drop(columns='candidate').values,points.values), columns=df.drop(columns='candidate').columns).sum(axis=1)
+  
         marks = marks.apply(lambda x: 0 if x<0 else x)
-        marks = marks.values*mask
+  
         self.max_points = max_points
-        final_mark = marks/max_points*self.total_points
-        print(f'Max points: {max_points}, Total mark:{self.total_points}, Mean mark±1SD:{np.mean(final_mark)}±{np.std(final_mark)}')
+        final_mark = np.round(marks/max_points*self.total_points,0)
+        print(f'Max points: {max_points}, Total mark:{self.total_points}, Mean mark±1SD:{np.mean(final_mark)}±{np.std(final_mark)}, Expectation:{self.total_points*.67}')
         return final_mark
 
 
@@ -333,8 +325,45 @@ class GradingSchema():
         grade_per_candidate['candidate'] = self.markings.candidate
         grade_per_candidate[self.name] = self.calculate_grades()
         self.grades = grade_per_candidate
+        
         return self.grades
 
+class TestBasedGradingSchema(GradingSchema):
+    def __init__(self,test_name,total_points, external_test=True):
+        self.name = test_name
+        self.total_points = total_points
+        self.external_test = external_test
+
+        return None
+
+    def load_marks(self, folder, candidates):
+        results = pd.DataFrame()
+        results['candidate'] = candidates
+        self.folder = folder
+
+        if self.external_test:
+            try:
+                test_results = pd.read_csv(f'grading/scores/{self.name}.csv')
+                results = pd.merge(results, test_results, on='candidate')
+                print(f'Loaded results for {self.name}')
+            except Exception as e:
+                print(f'Unable to load results:{e}')
+        else:
+                columns = pd.read_csv(f"notebooks/{results['candidate'][0]}/grades/nbta_score_{self.name}.csv").columns
+                test_results = pd.DataFrame()
+                #test_results['candidate'] = results.candidate.copy()
+                test_results[columns] = pd.DataFrame(np.zeros((test_results.shape[0], columns.shape[0])))
+                for candidate in tqdm(results['candidate']):
+                    try:
+                        candidate_results = pd.read_csv(f'notebooks/{candidate}/grades/nbta_score_{self.name}.csv')
+                        candidate_results['candidate'] = candidate
+                        test_results = pd.concat([test_results, candidate_results])
+                    except Exception as e:
+                        print(f'Unable to load results:{e}')
+
+        self.markings = test_results.copy()
+
+        return self
 
 
 class Grader():
@@ -363,6 +392,27 @@ class Grader():
         self.grades = pd.DataFrame()
         self.grades['candidate'] = self.marker.candidates
 
+    def get_standard_columns(self):
+        standard_values = pd.DataFrame()
+        standard_values['candidate'] = self.grades['candidate'].values
+        standard_values['style_mark','estimated_mark','lecturer_comments', 'marker']=np.nan
+        
+        for idx, row in  tqdm(standard_values.iterrows()):
+            base_dir = f'{self.folder}/{row.candidate}/grades'
+            standard_values.loc[idx,'style_mark'] = ';'.join(pd.read_csv(f'{base_dir}/nbta_selection_style.csv')['options'].values)
+            standard_values.loc[idx,'estimated_mark'] = pd.read_csv(f'{base_dir}/nbta_selection_estimated_mark.csv')['options'].values[0]
+            standard_values.loc[idx,'marker'] = pd.read_csv(f'{base_dir}/first_marker.csv').values[0]
+
+            with open(f'{base_dir}/nbta_pos_feedback_Private_feedback_for_lecturer.txt') as f:
+                pos_text = f.readlines()
+            with open(f'{base_dir}/nbta_neg_feedback_Private_feedback_for_lecturer.txt') as f:
+                neg_text = f.readlines()
+
+            standard_values.loc[idx,'lecturer_comments'] = '\n'.join(pos_text).replace(',', ';') + ' - ' + '\n'.join(neg_text).replace(',', ';')
+        
+        return standard_values
+    
+
     def grade(self, questions=None):
         self.reset_grades()
 
@@ -373,6 +423,7 @@ class Grader():
         
         self.grades['total'] = 0
         for question in questions:
+            print(f"")
             print(f"Grading question {question}")
             schema = self.schemas.get(question)
             schema.load_marks(self.folder, self.grades['candidate'].values)
@@ -380,20 +431,10 @@ class Grader():
             self.grades['total'] = self.grades['total'] + self.grades[schema.name]
         self.grades['total'] = np.round(self.grades['total'],0)
 
-        print(f"Grading coding style")
-        self.style_schema.load_marks(self.folder, self.grades['candidate'].values)
-        style_results = self.style_schema.grade()
-        style_results.columns = ['candidate','coding_style']
-        self.grades = self.grades.merge(style_results, on = 'candidate')
-        
-        print(f"Gathering estimated marks")
-        est_marks = pd.DataFrame()
-        est_marks['candidate'] = self.grades['candidate']
-        est_marks['estimated_marks']=np.nan
-        for candidate in tqdm(self.grades['candidate'].values):
-            mark = pd.read_csv(f'{self.folder}/{candidate}/grades/nbta_selection_estimated_grade.csv')
-            est_marks.loc[est_marks.candidate==candidate,'estimated_marks']=mark.loc[0,'options']
-        self.grades = self.grades.merge(est_marks, on = 'candidate')
+        print(f"Gathering estimated marks, comments and style")
+        additional_columns = self.get_standard_columns()
+        self.grades = self.grades.merge(additional_columns, on = 'candidate')
+
         return self
 
     def marking_for_question(self, question):

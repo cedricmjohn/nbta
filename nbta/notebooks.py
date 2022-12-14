@@ -63,7 +63,7 @@ class ParsedNotebook():
         f'all_tests = [{final_cell_text}]','',
         f'for t in all_tests:',
         f'    t.save_values()','',
-        f'print("Saved First Marker as:", os.getlogin())'
+        f'print("Saved First Marker as:", os.getlogin())','',
         f'pd.Series(data=[os.getlogin()], name="marker_name").to_csv("grades/first_marker.csv", index=False)']
         final_cell_code = '\n'.join(final_cell_code)
         modified_cells.append(nbf.v4.new_code_cell(source=final_cell_code))
@@ -227,7 +227,7 @@ class NotebookMarker():
         for the_test in self.register_autotest():
             print(f"Now running test {the_test}")
             test_results[the_test]= self.run_single_test(the_test)
-            test_results[the_test].to_csv(f'grading/scores/{the_test}.csv')
+            test_results[the_test].to_csv(f'grading/scores/{the_test}.csv', index=False)
 
         self.test_results = test_results
         
