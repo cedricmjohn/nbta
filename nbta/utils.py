@@ -1,6 +1,8 @@
 from datetime import datetime
 import nbformat as nbf 
 import os
+import wget
+import zipfile
 
 def header_cell(author):
     # datetime object containing current date and time
@@ -42,6 +44,19 @@ def footer_cell():
     "nbta_estimated_mark = EstimatedMark()",
     f"nbta_private_feedback = QuestionGrader('Private_feedback_for_lecturer', feedback=True)"]
     return "\n".join(lines)
+
+def download_data(id, google_drive=True, zip_name='raw_data.zip'):
+    if google_drive:
+        url = f'https://drive.google.com/uc?id={id}'
+    else:
+        url=id
+
+    wget.download(url)
+
+    with zipfile.ZipFile(zip_name, 'r',) as zip_ref:
+        zip_ref.extractall()
+
+    os.remove(zip_name)
 
 
 
