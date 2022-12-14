@@ -6,8 +6,13 @@ with open('requirements.txt') as f:
 requirements = [x.strip() for x in content if 'git+' not in x]
 
 setup(name='nbta',
-      version="0.2.6",
+<<<<<<< HEAD
+      version="0.2.7.1",
       description="nbta is the Notebook Teaching Assistant helping with meaningful feedback and error management for Python",
+=======
+      version="0.2.7",
+      description="nbta is the Notebook Teaching Assistant helping with meaningful feedback, assessment and error management for Python",
+>>>>>>> 742022934c5ecbb125dec6e24035550ab7b81562
       packages=find_packages(),
       install_requires=requirements,
       url='https://github.com/cedricmjohn/nbta',
