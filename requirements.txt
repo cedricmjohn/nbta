@@ -25,4 +25,3 @@ joblib
 memoized-property
 termcolor
 wget
-zipfile
